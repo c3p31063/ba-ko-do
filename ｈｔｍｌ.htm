@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>バーコード読み取り</title>
+</head>
+<body>
+  <h1>バーコード読み取り</h1>
+  <video id="video" width="300" height="200" autoplay></video>
+  <p>読み取ったバーコード: <span id="barcode-result">なし</span></p>
+
+  <script>
+    // Barcode Detection APIのサポート確認
+    if ('BarcodeDetector' in window) {
+      const video = document.getElementById('video');
+      const resultDisplay = document.getElementById('barcode-result');
+
+      // カメラストリームを取得
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        .then((stream) => {
+          video.srcObject = stream;
+          video.play();
+          detectBarcode();
+        })
+        .catch((err) => console.error('カメラアクセスエラー:', err));
+
+      // バーコード検出関数
+      async function detectBarcode() {
+        const barcodeDetector = new BarcodeDetector({ formats: ['qr_code', 'ean_13', 'code_128'] });
+
+        // 定期的にバーコードをスキャン
+        setInterval(async () => {
+          try {
+            const barcodes = await barcodeDetector.detect(video);
+            if (barcodes.length > 0) {
+              const code = barcodes[0].rawValue;
+              resultDisplay.textContent = code;
+
+              // バックエンドにバーコードデータを送信
+              fetch('/api/save-barcode', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ barcode: code })
+              })
+              .then(response => response.json())
+              .then(data => {
+                console.log('サーバーに送信成功:', data);
+              })
+              .catch(error => {
+                console.error('サーバーへの送信エラー:', error);
+              });
+            }
+          } catch (err) {
+            console.error('バーコード検出エラー:', err);
+          }
+        }, 1000);
+      }
+    } else {
+      alert('このブラウザはBarcode Detection APIに対応していません。');
+    }
+  </script>
+</body>
+</html>
