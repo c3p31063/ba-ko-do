@@ -7,28 +7,34 @@
 </head>
 <body>
   <h1>バーコード読み取り</h1>
+  <button id="start-button">カメラを起動</button>
   <video id="video" width="300" height="200" autoplay></video>
   <p>読み取ったバーコード: <span id="barcode-result">なし</span></p>
+  <div id="message"></div>
 
   <script>
-    // Barcode Detection APIのサポート確認
-    if ('BarcodeDetector' in window) {
-      const video = document.getElementById('video');
-      const resultDisplay = document.getElementById('barcode-result');
+    const video = document.getElementById('video');
+    const resultDisplay = document.getElementById('barcode-result');
+    const messageDisplay = document.getElementById('message');
 
-      // カメラストリームを取得
-      navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-        .then((stream) => {
-          video.srcObject = stream;
-          video.play();
-          detectBarcode();
-        })
-        .catch((err) => console.error('カメラアクセスエラー:', err));
+    document.getElementById('start-button').addEventListener('click', async () => {
+      // カメラへのアクセスをリクエスト
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+        video.srcObject = stream;
+        video.play();
+        messageDisplay.textContent = "カメラが起動しました。バーコードをスキャンします...";
+        detectBarcode();
+      } catch (err) {
+        console.error('カメラアクセスエラー:', err);
+        messageDisplay.textContent = "カメラへのアクセスができません: " + err.message;
+      }
+    });
 
-      // バーコード検出関数
-      async function detectBarcode() {
+    async function detectBarcode() {
+      if ('BarcodeDetector' in window) {
         const barcodeDetector = new BarcodeDetector({ formats: ['qr_code', 'ean_13', 'code_128'] });
-
+        
         // 定期的にバーコードをスキャン
         setInterval(async () => {
           try {
@@ -57,9 +63,9 @@
             console.error('バーコード検出エラー:', err);
           }
         }, 1000);
+      } else {
+        messageDisplay.textContent = "このブラウザはBarcode Detection APIに対応していません。";
       }
-    } else {
-      alert('このブラウザはBarcode Detection APIに対応していません。');
     }
   </script>
 </body>
