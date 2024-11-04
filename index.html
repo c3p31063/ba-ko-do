@@ -4,54 +4,55 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>バーコードスキャナー</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsqr/1.4.0/jsQR.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
     <style>
+        #scanner {
+            width: 100%;
+            height: 100vh;
+            position: relative;
+            overflow: hidden;
+        }
         video {
             width: 100%;
             height: auto;
         }
-        canvas {
-            display: none;
-        }
     </style>
 </head>
 <body>
-    <h1>バーコードスキャナー</h1>
-    <video id="video"></video>
-    <canvas id="canvas"></canvas>
-    <p id="result"></p>
+    <div id="scanner"></div>
+    <h2>スキャンしたバーコード: <span id="barcodeResult"></span></h2>
 
     <script>
-        const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const resultText = document.getElementById('result');
-        const context = canvas.getContext('2d');
-
-        // カメラのストリームを取得
-        navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
-            .then(stream => {
-                video.srcObject = stream;
-                video.setAttribute('playsinline', true); // iOSで全画面表示を防ぐ
-                video.play();
-                requestAnimationFrame(tick);
+        document.addEventListener("DOMContentLoaded", function() {
+            Quagga.init({
+                inputStream: {
+                    name: "Live",
+                    type: "LiveStream",
+                    target: document.querySelector('#scanner'), // スキャンするターゲット
+                    constraints: {
+                        facingMode: "environment" // 背面カメラを使用
+                    },
+                },
+                decoder: {
+                    readers: ["code_128_reader"] // 読み取るバーコードのタイプ
+                },
+            }, function(err) {
+                if (err) {
+                    console.log(err);
+                    return;
+                }
+                console.log("Quagga is ready!");
+                Quagga.start();
             });
 
-        function tick() {
-            if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                canvas.height = video.videoHeight;
-                canvas.width = video.videoWidth;
-                context.drawImage(video, 0, 0, canvas.width, canvas.height);
-                const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-                const code = jsQR(imageData.data, imageData.width, imageData.height);
-
-                if (code) {
-                    resultText.textContent = `スキャンしたコード: ${code.data}`;
-                } else {
-                    resultText.textContent = "バーコードをスキャンしてください";
-                }
-            }
-            requestAnimationFrame(tick);
-        }
+            Quagga.onDetected(function(data) {
+                const code = data.codeResult.code;
+                document.getElementById("barcodeResult").innerText = code;
+                console.log("スキャンしたバーコード:", code);
+                // スキャンが成功したら、スキャンを停止する場合
+                // Quagga.stop();
+            });
+        });
     </script>
 </body>
 </html>
