@@ -7,103 +7,94 @@
   <!-- QuaggaJSのCDNを追加 -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
   <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.1.3/css/bootstrap.min.css">
-  <link rel="stylesheet" href="style.css">
 </head>
 <style>
-        #scanner-container {
-            width: 100%;
-            height: 400px;
-            background-color: #eee;
-        }
-        #barcode-result, #product-info {
-            margin-top: 20px;
-            font-size: 1.5em;
-            text-align: center;
-        }
-<script src="https://unpkg.com/feather-icons"></script>
-<script src="script.js"></script>
+  #camera {
+    width: 100%;
+    height: 400px;
+    background-color: #eee;
+  }
+  #barcode-result, #product-info {
+    margin-top: 20px;
+    font-size: 1.5em;
+    text-align: center;
+  }
 </style>
 <body>
-  <div class="display-cover">
-    <video autoplay></video>
-    <canvas class="d-none"></canvas>
-
-    <div class="video-options">
-        <select name="" id="" class="custom-select">
-            <option value="">Select camera</option>
-        </select>
-    </div>
-
-    <img class="screenshot-image d-none" alt="">
-
-    <div class="controls">
-        <button class="btn btn-danger play" title="Play"><i data-feather="play-circle"></i></button>
-        <button class="btn btn-info pause d-none" title="Pause"><i data-feather="pause"></i></button>
-        <button class="btn btn-outline-success screenshot d-none" title="ScreenShot"><i data-feather="image"></i></button>
-    </div>
-</div>
-    <h1>バーコードスキャナー</h1>
-    <div id="scanner-container"></div>
-    <div id="barcode-result">バーコードをスキャンしてください</div>
-    <div id="product-info"></div>
+  <h1>バーコードスキャナー</h1>
+  <!-- カメラの映像を表示するDOM -->
+  <div id="camera"></div>
+  <div id="barcode-result">バーコードをスキャンしてください</div>
+  <div id="product-info"></div>
 
   <script type="module">
+    // QuaggaJSを読み込み
     import Quagga from "quagga";
-    
-    // LiveStreamを表示するvideoDOMを挿入したい親DOM
+
+    // カメラ映像を表示するvideoDOMを設定
     const camera = document.getElementById("camera");
     const video = document.createElement("video");
     video.autoplay = true;
     video.playsInline = true;
     camera.appendChild(video);
 
-    // カメラを起動しスナップショットをQuaggaJSで読み取る
+    // カメラを起動し、スナップショットをQuaggaJSで読み取る
     multiCameraStart(camera, video);
 
     async function multiCameraStart(camera, video) {
-      // 使用したいカメラを選択
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const videoDevices = devices.filter(
-        (v) =>
-          v.kind == "videoinput" && v.label.indexOf("camera2 0, facing back") >= 0
-      );
-      if (videoDevices.length == 0) {
-        // 該当のカメラがないならQuaggaJsをLivestreamで起動
-        start(camera);
-      } else {
+      try {
+        // カメラデバイスを列挙し、バックカメラを選択
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(
+          (v) =>
+            v.kind === "videoinput" && v.label.indexOf("back") >= 0
+        );
+
+        // デバイスIDを取得し、カメラにアクセス
         const stream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: {
-            deviceId: videoDevices[0].deviceId,
-          },
+          video: videoDevices.length > 0
+            ? { deviceId: videoDevices[0].deviceId }
+            : true
         });
         video.srcObject = stream;
 
-        const track = stream.getVideoTracks()[0];
+        // ストリームからのスナップショットでバーコードを読み取る
         const canvas = document.createElement("canvas");
         const ctx = canvas.getContext("2d");
+        const track = stream.getVideoTracks()[0];
         const trackSettings = track.getSettings();
-        canvas.width = trackSettings.width;
-        canvas.height = trackSettings.height;
+        canvas.width = trackSettings.width || 640;
+        canvas.height = trackSettings.height || 480;
 
-        let interval = window.setInterval(() => {
-          ctx.drawImage(video, 0, 0, trackSettings.width, trackSettings.height);
+        let interval = setInterval(() => {
+          // videoの映像をcanvasに描画
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
           canvas.toBlob(
             (blob) => {
               if (blob) {
                 const reader = new FileReader();
                 reader.readAsDataURL(blob);
                 reader.onload = () => {
+                  // QuaggaJSの設定を用意
                   const config = {
                     decoder: {
-                      readers: ["ean_reader"],
-                      multiple: false,
+                      readers: ["ean_reader"]
                     },
                     locate: true,
                     src: reader.result,
-                    singleChannel: false,
                   };
-                  Quagga.decodeSingle(config);
+                  // QuaggaJSを実行してバーコードを検出
+                  Quagga.decodeSingle(config, (result) => {
+                    if (result && result.codeResult) {
+                      // 読み取ったバーコード番号を表示
+                      document.getElementById("barcode-result").innerText =
+                        "バーコード: " + result.codeResult.code;
+
+                      // スキャン成功後、カメラ停止
+                      clearInterval(interval);
+                      stream.getTracks().forEach(track => track.stop());
+                    }
+                  });
                 };
               }
             },
@@ -111,25 +102,10 @@
             1
           );
         }, 300);
-
-        let code;
-        let count = 0;
-        Quagga.onDetected((result) => {
-          if (code == result.codeResult.code) {
-            count++;
-          } else {
-            count = 0;
-            code = result.codeResult.code;
-          }
-          if (count >= 3) {
-            console.log(code);
-            window.clearInterval(interval);
-            const tracks = stream.getVideoTracks();
-            for (let i = 0; i < tracks.length; i++) {
-              tracks[i].stop();
-            }
-          }
-        });
+      } catch (error) {
+        console.error("カメラアクセスエラー:", error);
+        document.getElementById("barcode-result").innerText = 
+          "カメラのアクセスが拒否されました。アクセスを許可してください。";
       }
     }
   </script>
