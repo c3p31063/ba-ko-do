@@ -31,76 +31,55 @@
     // QuaggaJSを読み込み
     import Quagga from "quagga";
 
-    // カメラ映像を表示するvideoDOMを設定
-    const camera = document.getElementById("camera");
+    const cameraContainer = document.getElementById("camera");
     const video = document.createElement("video");
     video.autoplay = true;
     video.playsInline = true;
-    camera.appendChild(video);
+    cameraContainer.appendChild(video);
 
-    // カメラを起動し、スナップショットをQuaggaJSで読み取る
-    multiCameraStart(camera, video);
-
-    async function multiCameraStart(camera, video) {
+    // カメラ起動およびバーコードスキャン開始
+    async function startCameraAndScan() {
       try {
-        // カメラデバイスを列挙し、バックカメラを選択
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoDevices = devices.filter(
-          (v) =>
-            v.kind === "videoinput" && v.label.indexOf("back") >= 0
-        );
-
-        // デバイスIDを取得し、カメラにアクセス
+        // ユーザーのカメラにアクセス
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: videoDevices.length > 0
-            ? { deviceId: videoDevices[0].deviceId }
-            : true
+          video: { facingMode: "environment" }  // 背面カメラを指定
         });
         video.srcObject = stream;
 
-        // ストリームからのスナップショットでバーコードを読み取る
+        // カメラからのストリームを使い、QuaggaJSでバーコード読み取り
         const canvas = document.createElement("canvas");
         const ctx = canvas.getContext("2d");
-        const track = stream.getVideoTracks()[0];
-        const trackSettings = track.getSettings();
-        canvas.width = trackSettings.width || 640;
-        canvas.height = trackSettings.height || 480;
 
         let interval = setInterval(() => {
-          // videoの映像をcanvasに描画
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
           ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          canvas.toBlob(
-            (blob) => {
-              if (blob) {
-                const reader = new FileReader();
-                reader.readAsDataURL(blob);
-                reader.onload = () => {
-                  // QuaggaJSの設定を用意
-                  const config = {
-                    decoder: {
-                      readers: ["ean_reader"]
-                    },
-                    locate: true,
-                    src: reader.result,
-                  };
-                  // QuaggaJSを実行してバーコードを検出
-                  Quagga.decodeSingle(config, (result) => {
-                    if (result && result.codeResult) {
-                      // 読み取ったバーコード番号を表示
-                      document.getElementById("barcode-result").innerText =
-                        "バーコード: " + result.codeResult.code;
 
-                      // スキャン成功後、カメラ停止
-                      clearInterval(interval);
-                      stream.getTracks().forEach(track => track.stop());
-                    }
-                  });
+          canvas.toBlob((blob) => {
+            if (blob) {
+              const reader = new FileReader();
+              reader.readAsDataURL(blob);
+              reader.onload = () => {
+                const config = {
+                  decoder: {
+                    readers: ["ean_reader"]
+                  },
+                  locate: true,
+                  src: reader.result,
                 };
-              }
-            },
-            "image/jpeg",
-            1
-          );
+                Quagga.decodeSingle(config, (result) => {
+                  if (result && result.codeResult) {
+                    document.getElementById("barcode-result").innerText =
+                      "バーコード: " + result.codeResult.code;
+                    
+                    // カメラ停止とバーコード読み取り停止
+                    clearInterval(interval);
+                    stream.getTracks().forEach(track => track.stop());
+                  }
+                });
+              };
+            }
+          }, "image/jpeg", 1);
         }, 300);
       } catch (error) {
         console.error("カメラアクセスエラー:", error);
@@ -108,6 +87,9 @@
           "カメラのアクセスが拒否されました。アクセスを許可してください。";
       }
     }
+
+    // ページが読み込まれたときにカメラ起動
+    startCameraAndScan();
   </script>
 </body>
 </html>
