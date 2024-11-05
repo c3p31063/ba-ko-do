@@ -27,65 +27,40 @@
   <div id="barcode-result">バーコードをスキャンしてください</div>
   <div id="product-info"></div>
 
-  <script type="module">
-    // QuaggaJSを読み込み
-    import Quagga from "quagga";
-
-    const cameraContainer = document.getElementById("camera");
-    const video = document.createElement("video");
-    video.autoplay = true;
-    video.playsInline = true;
-    cameraContainer.appendChild(video);
-
+  <script>
     // カメラ起動およびバーコードスキャン開始
-    async function startCameraAndScan() {
-      try {
-        // ユーザーのカメラにアクセス
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: "environment" }  // 背面カメラを指定
-        });
-        video.srcObject = stream;
+    function startCameraAndScan() {
+      Quagga.init({
+        inputStream: {
+          type: "LiveStream",
+          target: document.getElementById("camera"),
+          constraints: {
+            facingMode: "environment"  // 背面カメラを指定
+          }
+        },
+        decoder: {
+          readers: ["ean_reader"]  // EANコードに対応
+        }
+      }, (err) => {
+        if (err) {
+          console.error("Quagga初期化エラー:", err);
+          document.getElementById("barcode-result").innerText = 
+            "カメラのアクセスが拒否されました。アクセスを許可してください。";
+          return;
+        }
+        Quagga.start();
+      });
 
-        // カメラからのストリームを使い、QuaggaJSでバーコード読み取り
-        const canvas = document.createElement("canvas");
-        const ctx = canvas.getContext("2d");
+      // バーコードを検出したときの処理
+      Quagga.onDetected((result) => {
+        if (result && result.codeResult) {
+          document.getElementById("barcode-result").innerText =
+            "バーコード: " + result.codeResult.code;
 
-        let interval = setInterval(() => {
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-          canvas.toBlob((blob) => {
-            if (blob) {
-              const reader = new FileReader();
-              reader.readAsDataURL(blob);
-              reader.onload = () => {
-                const config = {
-                  decoder: {
-                    readers: ["ean_reader"]
-                  },
-                  locate: true,
-                  src: reader.result,
-                };
-                Quagga.decodeSingle(config, (result) => {
-                  if (result && result.codeResult) {
-                    document.getElementById("barcode-result").innerText =
-                      "バーコード: " + result.codeResult.code;
-                    
-                    // カメラ停止とバーコード読み取り停止
-                    clearInterval(interval);
-                    stream.getTracks().forEach(track => track.stop());
-                  }
-                });
-              };
-            }
-          }, "image/jpeg", 1);
-        }, 300);
-      } catch (error) {
-        console.error("カメラアクセスエラー:", error);
-        document.getElementById("barcode-result").innerText = 
-          "カメラのアクセスが拒否されました。アクセスを許可してください。";
-      }
+          // スキャン終了
+          Quagga.stop();
+        }
+      });
     }
 
     // ページが読み込まれたときにカメラ起動
