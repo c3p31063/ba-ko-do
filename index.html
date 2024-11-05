@@ -1,74 +1,97 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>バーコードスキャナー</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/quagga/0.12.1/quagga.min.js"></script>
-    <style>
-        #scanner-container {
-            width: 100%;
-            height: 400px;
-            background-color: #eee;
-        }
-        #barcode-result, #product-info {
-            margin-top: 20px;
-            font-size: 1.5em;
-            text-align: center;
-        }
-    </style>
-</head>
-<body>
-    <h1>バーコードスキャナー</h1>
-    <div id="scanner-container"></div>
-    <div id="barcode-result">バーコードをスキャンしてください</div>
-    <div id="product-info"></div>
-
-    <script>
-        // QuaggaJSの初期化
-        Quagga.init({
-            inputStream: {
-                type : "LiveStream",
-                target: document.querySelector('#scanner-container'),
-                constraints: {
-                    width: 640,
-                    height: 480,
-                    facingMode: "environment"
+import Quagga from "quagga";
+// LiveStreamを表示するvideoDOMを挿入したい親DOM
+const camera = document.getElementById("camera");
+const video = document.createElement("video");
+video.autoplay = true;
+video.playsInline = true;
+camera.appendChild(video);
+// カメラを起動しスナップショットをQuaggaJSで読み取る
+multiCameraStart(camera, video);
+async function multiCameraStart(camera, video) {
+  // 使用したいカメラを選択
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  // カメラを選ぶ。Androidでは"camera2 0"のラベルがついているものが標準らしい。
+  const videoDevices = devices.filter(
+    (v) =>
+      v.kind == "videoinput" && v.label.indexOf("camera2 0, facing back") >= 0
+  );
+  if (videoDevices.length == 0) {
+    // 該当のカメラがないならQuaggaJsをLivestreamで起動
+    start(camera);
+  } else {
+    // 該当のカメラを起動
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: {
+        deviceId: videoDevices[0].deviceId,
+      },
+    });
+    // videoにstreamを入力
+    video.srcObject = stream;
+    // ビデオトラックを取得
+    const track = stream.getVideoTracks()[0];
+    // 読み取り用canvasの作成
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    const trackSettings = track.getSettings();
+    canvas.width = trackSettings.width;
+    canvas.height = trackSettings.height;
+    // 0.3秒ごとにcanvasにスナップショットをとり、QuaggaJsでバーコードを読み取る
+    let interval = window.setInterval(() => {
+      // canvasにスナップショットを作成
+      ctx.drawImage(video, 0, 0, trackSettings.width, trackSettings.height);
+      // canvasの画像をblobに変換
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            // blobをurlに変換
+            const reader = new FileReader();
+            reader.readAsDataURL(blob);
+            reader.onload = () => {
+              // quaggaを起動
+              const config = {
+                decoder: {
+                  readers: ["ean_reader"],
+                  multiple: false, // 精度向上のため複数入力は解除
                 },
-            },
-            decoder: {
-                readers: ["code_128_reader", "ean_reader", "ean_8_reader", "code_39_reader"]
-            },
-        }, function(err) {
-            if (err) {
-                console.error(err);
-                return;
-            }
-            Quagga.start();
-        });
+                locate: true, // 精度向上のためlocateオプションを設定
+                src: reader.result,
+                singleChannel: false,
+              };
+              // QuaggaJsを画像読み取りで起動
+              Quagga.decodeSingle(config);
+            };
+          }
+        },
+        "image/jpeg",
+        1
+      );
+    }, 300);
 
-        // バーコード検出時の処理
-        Quagga.onDetected(function(data) {
-            const barcode = data.codeResult.code;
-            document.getElementById('barcode-result').textContent = `検出されたバーコード: ${barcode}`;
-            
-            // サーバーにバーコードデータを送信する
-            fetch('/fetch-product', {  // '/fetch-product' はバックエンドのAPIエンドポイント
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ barcode: barcode })
-            })
-            .then(response => response.json())
-            .then(data => {
-                // サーバーから返ってきた商品情報を表示
-                document.getElementById('product-info').textContent = `商品名: ${data.name}, 価格: ${data.price}`;
-            })
-            .catch(error => {
-                console.error('エラー:', error);
-            });
-        });
-    </script>
-</body>
-</html>
+    // 読み取りに成功した場合の設定
+    let code;
+    let count = 0;
+    Quagga.onDetected((result) => {
+      // 3連続で同じコードを得られるまで検知
+      if (code == result.codeResult.code) {
+        count++;
+      } else {
+        // 前回のコードと違った場合
+        count = 0;
+        code = result.codeResult.code;
+      }
+      // 3連続で同じコードを得られた場合はカメラを停止
+      if (count >= 3) {
+        // コンソールにコードを表示
+        console.log(code);
+        // 画像の読み取りを停止
+        window.clearInterval(interval);
+        // カメラを停止
+        const tracks = stream.getVideoTracks();
+        for (let i = 0; i < tracks.length; i++) {
+          tracks[i].stop();
+        }
+      }
+    });
+  }
+}
